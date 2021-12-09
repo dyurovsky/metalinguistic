@@ -1,0 +1,69 @@
+---
+title: Analyzing pilot data on overregularizations
+author: Dan Yurovsky
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+  toc: false
+number_sections: false
+theme: lumen
+toc_float: false
+code_folding: show 
+---
+  
+```{r setup, include=FALSE}
+# load packages
+library(knitr)
+library(here)
+library(lme4)
+library(broom)
+library(janitor)
+library(tidyverse)
+library(ggthemes)
+library(readxl)
+library(tidyboot)
+library(directlabels)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, 
+               error = FALSE, cache = FALSE, tidy = FALSE)
+
+theme_set(theme_few(base_size = 14))
+```
+
+```{r load-data}
+data_file <- here("data/metalingusitic_transcriptions.xlsx")
+sheets <- excel_sheets(data_file)
+
+data <- map_dfr(sheets, ~read_xlsx(data_file, sheet = .x), 
+                .id = "participant") %>%
+  clean_names()  %>%
+  mutate(word_type = factor(word_type, levels = c("regular", "irregular")),
+         trial_type = factor(trial_type, 
+                            levels = c("correct", "overreg", "semantic")))
+```
+
+```{r accuracy}
+accs <- data %>%
+  group_by(word_type, trial_type, participant, response) %>%
+  count() %>%
+  filter(response != "NA") %>%
+  ungroup() %>%
+  complete(nesting(word_type, trial_type), response, participant,
+           fill = list(n = 0)) %>%
+  group_by(word_type, trial_type, participant) %>%
+  mutate(prop = n/sum(n)) %>%
+  group_by(word_type, trial_type, response) %>%
+  tidyboot_mean(prop) 
+
+ggplot(accs %>% filter(response == "yes"), 
+       aes(x = word_type, y = empirical_stat, color = trial_type,
+           label = trial_type)) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper,), 
+                      position = position_dodge(.25)) +
+  geom_dl(method = list("last.points", dl.trans(x = x + .2)),
+          position = position_dodge(.25)) + 
+  theme(legend.position = "none") +
+  labs(x = "word type", y = "acceptability")
+```

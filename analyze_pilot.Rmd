@@ -2,13 +2,15 @@
 title: Analyzing pilot data on overregularizations
 author: Dan Yurovsky
 date: "`r Sys.Date()`"
-output: 
+output:
   html_document:
-  toc: false
-number_sections: false
-theme: lumen
-toc_float: false
-code_folding: show 
+    code_folding: hide
+    number_sections: no
+    theme: lumen
+    toc: no
+    toc_float: no
+  pdf_document:
+    toc: no
 ---
   
 ```{r setup, include=FALSE}
@@ -44,6 +46,23 @@ data <- map_dfr(sheets, ~read_xlsx(data_file, sheet = .x),
                             levels = c("correct", "overreg", "semantic")))
 ```
 
+```{r words}
+words <- data %>% 
+  distinct(trial_type, word_type, image, audio) %>%
+  filter(trial_type != "semantic") %>%
+  pivot_wider(names_from = trial_type, values_from = audio)
+```
+
+Children were asked whether Dax the Alien gave each picture the correct label in three different conditions: 
+
+1. **correct** -- Dax called a picture of two mice "mice"
+2. **overregularized** -- Dax called a picture of two mice "mouses"
+3. **semantic error** -- Dax called a picture of two mice "trees" 
+
+Words were either irregulars like "mice" or regulars like "apples". For regular words, there was no overregularized condition.
+
+We first looked at children's judgments of Dax's accuracy. Children' judged semantic errors to be incorrect nearly always, but overregularizations to be correct nearly always.
+
 ```{r accuracy}
 accs <- data %>%
   group_by(word_type, trial_type, participant, response) %>%
@@ -55,7 +74,10 @@ accs <- data %>%
   group_by(word_type, trial_type, participant) %>%
   mutate(prop = n/sum(n)) %>%
   group_by(word_type, trial_type, response) %>%
-  tidyboot_mean(prop) 
+  tidyboot_mean(prop) %>%
+  mutate(trial_type = factor(trial_type, 
+                             levels = c("correct", "overreg", "semantic"),
+                             labels = c("correct", "overregularized", "error")))
 
 ggplot(accs %>% filter(response == "yes"), 
        aes(x = word_type, y = empirical_stat, color = trial_type,
@@ -65,5 +87,50 @@ ggplot(accs %>% filter(response == "yes"),
   geom_dl(method = list("last.points", dl.trans(x = x + .2)),
           position = position_dodge(.25)) + 
   theme(legend.position = "none") +
-  labs(x = "word type", y = "acceptability")
+  labs(x = "word type", y = "acceptability") +
+  scale_color_ptol()
+```
+
+Next we looked at children's responses to the question of what they would call each picture. Children were always almost correct for the irregular pictures, regardless of what Dax called them (not pictured).
+
+For irregular words, children said "mouses" and "mice" roughly equally often when Dax was incorrect and thus did not provide a cue. Otherwise, they were strongly influenced by Dax's answer.
+
+
+```{r free-responses}
+free_responses <- data %>%
+  filter(label != "NA") %>%
+  left_join(words, by = c("image", "word_type")) %>%
+  mutate(free_response = case_when(
+    label == correct ~ "correct",
+    label == overreg ~ "overregularized",
+    T ~ "other",
+  )) %>%
+  group_by(word_type, trial_type, participant, free_response) %>%
+  count() %>%
+  ungroup() %>%
+  complete(nesting(word_type, trial_type), free_response, participant,
+           fill = list(n = 0)) %>%
+  filter(free_response != "other") %>%
+  group_by(word_type, trial_type, participant) %>%
+  mutate(prop = n/sum(n)) %>%
+  group_by(word_type, trial_type, free_response) %>%
+  tidyboot_mean(prop) 
+
+free_responses %>%
+  filter(word_type == "irregular") %>%
+  mutate(free_response = factor(free_response, 
+                                levels = c("correct", "overregularized"),
+                                labels = c("mice", "mouses")),
+         trial_type = factor(trial_type, 
+                             levels = c("correct", "overreg", "semantic"),
+                             labels = c("mice", "mouses", "error"))) %>%
+  ggplot(aes(x = trial_type, y = empirical_stat, color = free_response,
+           label = free_response)) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                 position = position_dodge(.5)) +
+  geom_dl(method = list("last.points", dl.trans(x = x + .2)),
+          position = position_dodge(.5)) + 
+  theme(legend.position = "none") +
+  labs(x = "prompt", y = "free response") +
+  scale_color_ptol()
 ```
